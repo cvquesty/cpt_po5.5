@@ -11,8 +11,8 @@ rm -fr /var/cache/yum/*
 /usr/bin/yum -y install puppetserver
 
 # Start and Enable the Puppet Master
-/sbin/service start puppetserver
-/sbin/service enable puppetserver
+/sbin/service puppetserver start
+/sbin/chkconfig puppetserver on
 
 # Install Git
 /usr/bin/yum -y install git
@@ -30,13 +30,13 @@ certname=master.puppet.vm
 EOF
 
 # Bounce the network to trade out the Virtualbox IP
-/sbin/service restart network
+/sbin/service network restart
 
 # Turn off the Firewall for this infrastructure
-/usr/bin/systemctl stop iptables
-/usr/bin/systemctl stop ip6tables
-/usr/bin/systemctl disable iptables
-/usr/bin/systemctl disable ip6tables
+/sbin/service iptables stop
+/sbin/service ip6tables stop
+/sbin/chkconfig iptables off
+/sbin/chkconfig ip6tables off
 
 # Do initial Puppet Run
 /opt/puppetlabs/puppet/bin/puppet agent -t --server=master.puppet.vm
