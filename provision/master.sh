@@ -10,9 +10,14 @@ rm -fr /var/cache/yum/*
 # Install Puppet Server Components and Support Packages
 /usr/bin/yum -y install puppetserver
 
+# Remove the global Hiera.yaml
+rm -f /etc/puppetlabs/puppet/hiera.yaml
+
 # Start and Enable the Puppet Master
 /sbin/service puppetserver start
 /sbin/chkconfig puppetserver on
+/sbin/service puppet start
+/sbin/chkconfig puppet on
 
 # Install Git
 /usr/bin/yum -y install git
@@ -23,11 +28,23 @@ cat > /var/tmp/configure_puppet_master.pp << EOF
   ## Configure Puppet Master ##
   #####                   #####
 
-cat >>/etc/puppetlabs/puppet/puppet.conf << EOF
-[agent]
-server=master.puppet.vm
-certname=master.puppet.vm
+ini_setting { 'Master Agent Server':
+  section => 'agent',
+  setting => 'server',
+  value   => 'master.puppet.vm',
+}
+
+ini_setting { 'Master Agent CertName':
+  section => 'agent',
+  setting => 'certname',
+  value   => 'master.puppet.vm',
+}
 EOF
+
+# Install and Configure PuppetDB
+/opt/puppetlabs/puppet/bin/puppet module install puppetlabs-puppetdb
+/opt/puppetlabs/puppet/bin/puppet apply -e "include puppetdb" --http_connect_timeout=5m || true
+/opt/puppetlabs/puppet/bin/puppet apply -e "include puppetdb::master::config" --h  ttp_connect_timeout=5m || true
 
 # Bounce the network to trade out the Virtualbox IP
 /sbin/service network restart
@@ -56,6 +73,43 @@ class { 'r10k':
 }
 EOF
 
+# Place the directory environments config file
+cat > /var/tmp/configure_directory_environments.pp << 'EOF'
+#####                            #####
+## Configure Directory Environments ##
+#####                            #####
+
+# Default for ini_setting resource:
+Ini_setting {
+  ensure => 'present',
+  path   => "${::settings::confdir}/puppet.conf",
+}
+
+ini_setting { 'Configure Environmentpath':
+  section => 'main',
+  setting => 'environmentpath',
+  value   => '$codedir/environments',
+}
+
+ini_setting { 'Configure Basemodulepath':
+  section => 'main',
+  setting => 'basemodulepath',
+  value   => '$confdir/modules:/opt/puppetlabs/puppet/modules',
+}
+
+ini_setting { 'Master Agent Server':
+  section => 'agent',
+  setting => 'server',
+  value   => 'master.puppet.vm',
+}
+
+ini_setting { 'Master Agent Certname':
+  section => 'agent',
+  setting => 'certname',
+  value   => 'master.puppet.vm',
+}
+EOF
+
 # Install Puppet-r10k to configure r10k and all Dependencies
 /opt/puppetlabs/puppet/bin/puppet module install -f puppet-r10k
 /opt/puppetlabs/puppet/bin/puppet module install -f puppet-make
@@ -72,6 +126,7 @@ EOF
 
 # Now Apply Subsystem Configuration
 /opt/puppetlabs/puppet/bin/puppet apply /var/tmp/configure_r10k.pp
+/opt/puppetlabs/puppet/bin/puppet apply /var/tmp/configure_directory_environments.pp
 
 # Install and Configure autosign.conf for agents
 cat > /etc/puppetlabs/puppet/autosign.conf << 'EOF'
@@ -80,3 +135,6 @@ EOF
 
 # Initial r10k Deploy
 /usr/bin/r10k deploy environment -pv
+
+# Do Initial Puppet Run
+/opt/puppetlabs/puppet/bin/puppet agent -t
